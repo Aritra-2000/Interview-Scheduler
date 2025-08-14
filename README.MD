@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="src/assets/Cal-1.png" alt="App Screenshot" width="700">
+</p>
+
 # 📅 Interview Scheduler with Calendar Sync
 
 A **full-stack** application to streamline the interview scheduling process for recruiters and candidates.  
