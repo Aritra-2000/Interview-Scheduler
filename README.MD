@@ -2,7 +2,8 @@
 
 <p align="center">
   <img src="src/assets/Cal-1.png" alt="App Screenshot" width="700">
-  ADMIN DASHBOARD
+  <br/>
+  # ADMIN DASHBOARD
 </p>
 
 A **full-stack** application to streamline the interview scheduling process for recruiters and candidates.  
