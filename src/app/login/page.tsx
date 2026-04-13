@@ -3,10 +3,9 @@ export const dynamic = 'force-dynamic'
 import { signIn, useSession } from "next-auth/react"
 import { useEffect, useState } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
-import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { Loader2 } from "lucide-react"
+import { Calendar, Loader2, ShieldCheck, Sparkles } from "lucide-react"
 
 export default function Login() {
   const { status } = useSession()
@@ -32,63 +31,55 @@ export default function Login() {
 
   const getErrorMessage = (error: string) => {
     switch (error) {
-      case "OAuthSignin":
-        return "Error occurred during sign in. Please try again."
-      case "OAuthCallback":
-        return "Error occurred during callback. Please try again."
-      case "OAuthCreateAccount":
-        return "Could not create account. Please try again."
-      case "EmailCreateAccount":
-        return "Could not create account. Please try again."
-      case "Callback":
-        return "Error occurred during callback. Please try again."
-      case "OAuthAccountNotLinked":
-        return "Account not linked. Please sign in with the same provider you used before."
-      case "EmailSignin":
-        return "Check your email for the sign in link."
-      case "CredentialsSignin":
-        return "Sign in failed. Check your credentials."
-      case "SessionRequired":
-        return "Please sign in to access this page."
-      default:
-        return "An error occurred during sign in. Please try again."
+      case "OAuthSignin": return "Error occurred during sign in. Please try again."
+      case "OAuthCallback": return "Error occurred during callback. Please try again."
+      case "OAuthCreateAccount": return "Could not create account. Please try again."
+      default: return "An error occurred. Please try again."
     }
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-800 flex items-center justify-center p-4">
-      <div className="w-full max-w-md space-y-8">
-        {/* Header */}
-        <div className="text-center space-y-2">
-          <h1 className="text-3xl font-bold tracking-tight text-slate-900 dark:text-slate-100">Welcome back</h1>
-          <p className="text-slate-600 dark:text-slate-400">Sign in to your account to continue</p>
+    <div className="min-h-screen bg-[#020203] text-slate-200 flex items-center justify-center p-4 selection:bg-indigo-500/30 overflow-hidden relative">
+      {/* Background Decor */}
+      <div className="absolute top-0 left-0 w-full h-full bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-20 pointer-events-none" />
+      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-indigo-600/10 blur-[150px] rounded-full pointer-events-none" />
+
+      <div className="w-full max-w-[440px] relative z-10 flex flex-col items-center">
+        {/* Brand */}
+        <div className="mb-12 flex items-center gap-4 group cursor-pointer">
+          <div className="w-14 h-14 rounded-[2rem] bg-gradient-to-br from-indigo-500 to-blue-600 flex items-center justify-center text-white shadow-2xl group-hover:rotate-12 transition-transform">
+            <Calendar className="w-7 h-7 fill-white/10" strokeWidth={3} />
+          </div>
+          <div className="flex flex-col">
+            <span className="font-black text-white text-3xl tracking-tighter leading-none italic">SYNAPSE</span>
+            <span className="text-xs font-black tracking-[0.4em] uppercase text-indigo-400 opacity-60">Operations</span>
+          </div>
         </div>
 
         {/* Login Card */}
-        <Card className="shadow-lg border-0 bg-white/80 dark:bg-slate-800/80 backdrop-blur-sm">
-          <CardHeader className="space-y-1 pb-4">
-            <CardTitle className="text-2xl font-semibold text-center">Sign In</CardTitle>
-            <CardDescription className="text-center">Use your Google account to sign in securely</CardDescription>
+        <Card className="w-full border border-white/5 bg-[#09090b]/50 backdrop-blur-2xl rounded-[2.5rem] overflow-hidden shadow-[0_40px_100px_-20px_rgba(0,0,0,0.8)]">
+          <CardHeader className="pt-10 pb-6 text-center">
+            <CardTitle className="text-3xl font-black text-white tracking-tight">Access Terminal</CardTitle>
+            <CardDescription className="text-slate-500 font-bold uppercase text-[10px] tracking-[0.2em] mt-2">Identify yourself to proceed</CardDescription>
           </CardHeader>
-          <CardContent className="space-y-4">
-            {/* Error Alert */}
+          <CardContent className="px-10 pb-12 space-y-8">
             {error && (
-              <Alert variant="destructive" className="border-red-200 bg-red-50 dark:bg-red-950/20">
-                <AlertDescription className="text-sm">{getErrorMessage(error)}</AlertDescription>
+              <Alert variant="destructive" className="bg-red-500/10 border-red-500/20 text-red-400 rounded-2xl">
+                <AlertDescription className="font-bold text-xs uppercase tracking-tight">
+                  {getErrorMessage(error)}
+                </AlertDescription>
               </Alert>
             )}
 
-            {/* Google Sign In Button */}
-            <Button
+            <button
               onClick={handleGoogleSignIn}
-              disabled={isLoading || status === "loading"}
-              className="w-full h-12 bg-white hover:bg-gray-50 text-gray-900 border border-gray-300 shadow-sm transition-all duration-200 hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed"
-              variant="outline"
+              disabled={isLoading}
+              className="w-full py-5 rounded-[2rem] bg-white text-black font-black text-lg hover:bg-slate-200 disabled:opacity-50 disabled:cursor-not-allowed transition-all active:scale-95 flex items-center justify-center gap-3 shadow-[0_20px_40px_-10px_rgba(255,255,255,0.2)]"
             >
               {isLoading ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                <Loader2 className="w-6 h-6 animate-spin" />
               ) : (
-                <svg className="mr-2 h-4 w-4" viewBox="0 0 24 24">
+                <svg className="w-6 h-6" viewBox="0 0 24 24">
                   <path
                     fill="currentColor"
                     d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
@@ -107,31 +98,31 @@ export default function Login() {
                   />
                 </svg>
               )}
-              {isLoading ? "Signing in..." : "Continue with Google"}
-            </Button>
+              {isLoading ? "Authenticating..." : "Authorize with Google"}
+            </button>
 
-            {/* Loading state for session check */}
-            {status === "loading" && (
-              <div className="flex items-center justify-center py-4">
-                <Loader2 className="h-6 w-6 animate-spin text-slate-600" />
-                <span className="ml-2 text-sm text-slate-600">Checking authentication...</span>
-              </div>
-            )}
+            <div className="flex items-center gap-4 text-slate-700">
+               <div className="h-px flex-1 bg-white/5" />
+               <span className="text-[10px] font-black uppercase tracking-widest">Secure Link</span>
+               <div className="h-px flex-1 bg-white/5" />
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+               <div className="p-4 rounded-3xl bg-white/[0.02] border border-white/5 flex flex-col items-center gap-2">
+                  <ShieldCheck className="w-5 h-5 text-indigo-500" />
+                  <span className="text-[9px] font-black text-slate-500 uppercase tracking-tighter">Encrypted</span>
+               </div>
+               <div className="p-4 rounded-3xl bg-white/[0.02] border border-white/5 flex flex-col items-center gap-2">
+                  <Sparkles className="w-5 h-5 text-blue-500" />
+                  <span className="text-[9px] font-black text-slate-500 uppercase tracking-tighter">Automated</span>
+               </div>
+            </div>
           </CardContent>
         </Card>
 
-        {/* Footer */}
-        <div className="text-center text-sm text-slate-600 dark:text-slate-400">
-          <p>
-            By signing in, you agree to our{" "}
-            <a href="/terms" className="underline hover:text-slate-900 dark:hover:text-slate-100">
-              Terms of Service
-            </a>{" "}
-            and{" "}
-            <a href="/privacy" className="underline hover:text-slate-900 dark:hover:text-slate-100">
-              Privacy Policy
-            </a>
-          </p>
+        <div className="mt-12 flex items-center gap-2 text-slate-600">
+          <Sparkles className="w-3 h-3 text-indigo-500" />
+          <span className="text-[10px] font-black uppercase tracking-widest">Enterprise Orchestration Engine</span>
         </div>
       </div>
     </div>
