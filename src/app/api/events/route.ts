@@ -43,7 +43,7 @@ export async function POST(req: Request) {
   }
 
   const body = await req.json();
-  const { title, start, end, candidateEmail, candidateName } = body || {};
+  const { title, start, end, candidateEmail, candidateName, notes, rating, stage } = body || {};
   if (!title || !start || !candidateEmail) {
     return NextResponse.json({ error: "Missing required fields: title, start, candidateEmail" }, { status: 400 });
   }
@@ -58,6 +58,9 @@ export async function POST(req: Request) {
   const endDt = computedEnd ? new Date(computedEnd) : undefined;
   if (!startDt || isNaN(startDt.getTime())) {
     return NextResponse.json({ error: "Invalid start datetime" }, { status: 400 });
+  }
+  if (endDt && isNaN(endDt.getTime())) {
+    return NextResponse.json({ error: "Invalid end datetime" }, { status: 400 });
   }
   if (endDt && endDt <= startDt) {
     return NextResponse.json({ error: "End must be after start" }, { status: 400 });
@@ -104,6 +107,9 @@ export async function POST(req: Request) {
     end: computedEnd,
     candidateEmail: String(candidateEmail).toLowerCase(),
     createdBy: (session as any)?.user?.email ?? undefined,
+    notes,
+    rating,
+    stage
   });
 
   // Ensure a Candidate record exists for this email
@@ -121,18 +127,27 @@ export async function POST(req: Request) {
 
   // Send notification email to candidate
   try {
-    const allowBySettings = settings?.notifications?.scheduled !== false; // default on
-    const cand = await Candidate.findOne({ candidateEmail: item.candidateEmail }).lean().catch(() => null as any);
+    const allowBySettings = settings?.notifications?.scheduled !== false;
+    const cand = await Candidate.findOne({ candidateEmail: item.candidateEmail }).lean().catch(() => null);
     const allowByCandidate = !(cand?.doNotEmail);
+
+    console.log(`[EMAIL_DEBUG] Recipient: ${item.candidateEmail}`);
+    console.log(`[EMAIL_DEBUG] allowBySettings: ${allowBySettings}, allowByCandidate: ${allowByCandidate}`);
+
     if (!allowBySettings || !allowByCandidate) {
       const skipReason = !allowBySettings ? "disabled_by_settings" : "candidate_muted";
+      console.log(`[EMAIL_DEBUG] Skipping email. Reason: ${skipReason}`);
       return NextResponse.json({ ok: true, id: item.id, emailSent: false, skipReason });
     }
+
     const host = process.env.EMAIL_HOST;
-    const port = process.env.EMAIL_PORT ? Number(process.env.EMAIL_PORT) : undefined;
+    const port = process.env.EMAIL_PORT ? Number(process.env.EMAIL_PORT) : 587;
     const service = process.env.EMAIL_SERVICE;
+    
+    console.log(`[EMAIL_DEBUG] Using Transport: ${host ? `Host: ${host}:${port}` : `Service: ${service}`}`);
+
     const transportOptions: any = host
-      ? { host, port: port ?? 587, secure: (port ?? 587) === 465 }
+      ? { host, port, secure: port === 465 }
       : service
       ? { service }
       : {};
@@ -140,6 +155,11 @@ export async function POST(req: Request) {
       user: process.env.EMAIL_USER,
       pass: process.env.EMAIL_PASS,
     };
+    
+    if (!transportOptions.auth.user || !transportOptions.auth.pass) {
+      console.error("[EMAIL_DEBUG] CRITICAL: EMAIL_USER or EMAIL_PASS not found in process.env");
+    }
+
     const transporter = nodemailer.createTransport(transportOptions);
 
     const fromEmail = process.env.EMAIL_USER || "no-reply@example.com";
@@ -163,22 +183,59 @@ export async function POST(req: Request) {
     const startStr = fmt.format(new Date(start));
     const endStr = computedEnd ? fmt.format(new Date(computedEnd)) : undefined;
 
+    // Generate ICS file
+    let icsBuffer: Buffer | undefined;
+    try {
+        const { createEvent } = require("ics");
+        const startDate = new Date(start);
+        const endDate = computedEnd ? new Date(computedEnd) : new Date(startDate.getTime() + 30 * 60000);
+        
+        const eventData = {
+            start: [startDate.getFullYear(), startDate.getMonth() + 1, startDate.getDate(), startDate.getHours(), startDate.getMinutes()] as [number, number, number, number, number],
+            duration: { minutes: Math.round(((endDate.getTime() - startDate.getTime()) / 60000)) || 30 },
+            title: title,
+            description: `Interview for ${candidateName || "Candidate"}`,
+            location: "Video Call (See invitation)",
+            status: "CONFIRMED" as const,
+            organizer: { name: fromName || "Recruiter", email: fromEmail }
+        };
+
+        const { error, value } = createEvent(eventData);
+        if (!error) icsBuffer = Buffer.from(value);
+    } catch (e) {
+        console.error("ICS generation failed:", e);
+    }
+
     const html = `
-      <p>Hello${cand?.candidateName ? ` ${cand.candidateName}` : ""},</p>
-      <p>You have been scheduled for an interview.</p>
-      <p><strong>Title:</strong> ${title}</p>
-      <p><strong>Date/Time:</strong> ${startStr}${endStr ? ` - ${endStr}` : ""}</p>
-      <p>Regards,<br/>Recruitment Team</p>
+      <div style="font-family: sans-serif; color: #333; max-width: 600px; margin: auto; padding: 20px; border: 1px solid #eee; border-radius: 10px;">
+        <h2 style="color: #2563eb;">Interview Scheduled!</h2>
+        <p>Hello${cand?.candidateName ? ` ${cand.candidateName}` : ""},</p>
+        <p>You have been scheduled for an interview. Please find the details below and an attached calendar invitation.</p>
+        <div style="background: #f9fafb; padding: 15px; border-radius: 8px; margin: 20px 0;">
+          <p style="margin: 0;"><strong>Position:</strong> ${title}</p>
+          <p style="margin: 5px 0;"><strong>Date/Time:</strong> ${startStr}${endStr ? ` - ${endStr}` : ""}</p>
+        </div>
+        <p>Regards,<br/>Recruitment Team</p>
+      </div>
     `;
 
     await transporter.sendMail({
       from,
       to: candidateEmail,
-      subject: `Interview Scheduled: ${title}`,
+      subject: `Interview Scheduled: ${title} - ${startStr}`,
       text: `Interview scheduled. Title: ${title}. When: ${startStr}${endStr ? ` - ${endStr}` : ""}`,
       html,
       ...(replyTo ? { replyTo } : {}),
+      attachments: icsBuffer ? [
+          {
+              filename: "interview.ics",
+              content: icsBuffer,
+              contentType: "text/calendar",
+          }
+      ] : undefined
     });
+    
+    console.log(`[EMAIL_DEBUG] Success: Email sent to ${candidateEmail}`);
     return NextResponse.json({ ok: true, id: item.id, emailSent: true });
   } catch (err) {
     // Don't fail the request if email fails, but report it

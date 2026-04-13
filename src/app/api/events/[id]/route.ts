@@ -36,13 +36,23 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
 
   const id = params.id;
   const body = await req.json();
-  const { title, start, end, candidateEmail, candidateName } = body || {};
+  const { title, start, end, candidateEmail, candidateName, notes, rating, stage } = body || {};
 
   await connectDB();
   const before = await Event.findById(id).lean();
   const updated = await Event.findByIdAndUpdate(
     id,
-    { $set: { ...(title !== undefined ? { title } : {}), ...(start !== undefined ? { start } : {}), ...(end !== undefined ? { end } : {}), ...(candidateEmail !== undefined ? { candidateEmail: String(candidateEmail).toLowerCase() } : {}), } },
+    { 
+      $set: { 
+        ...(title !== undefined ? { title } : {}), 
+        ...(start !== undefined ? { start } : {}), 
+        ...(end !== undefined ? { end } : {}), 
+        ...(candidateEmail !== undefined ? { candidateEmail: String(candidateEmail).toLowerCase() } : {}),
+        ...(notes !== undefined ? { notes } : {}),
+        ...(rating !== undefined ? { rating } : {}),
+        ...(stage !== undefined ? { stage } : {}),
+      } 
+    },
     { new: true }
   ).lean();
   if (!updated) return NextResponse.json({ error: "Not found" }, { status: 404 });
@@ -68,6 +78,9 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   const endDt = nextEndStr ? new Date(nextEndStr) : undefined;
   if (!startDt || isNaN(startDt.getTime())) {
     return NextResponse.json({ error: "Invalid start datetime" }, { status: 400 });
+  }
+  if (endDt && isNaN(endDt.getTime())) {
+    return NextResponse.json({ error: "Invalid end datetime" }, { status: 400 });
   }
   if (endDt && endDt <= startDt) {
     return NextResponse.json({ error: "End must be after start" }, { status: 400 });
@@ -144,17 +157,62 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
     const newEndStr = updated.end ? fmt.format(new Date(updated.end)) : undefined;
     const oldWhen = `${oldStartStr}${oldEndStr ? ` - ${oldEndStr}` : ""}`;
     const newWhen = `${newStartStr}${newEndStr ? ` - ${newEndStr}` : ""}`;
-    const subject = `Interview Rescheduled: ${updated.title}`;
+
+    // Generate ICS file for rescheduled time
+    let icsBuffer: Buffer | undefined;
+    try {
+        const { createEvent } = require("ics");
+        const startDate = new Date(updated.start);
+        const endDate = updated.end ? new Date(updated.end) : new Date(startDate.getTime() + 30 * 60000);
+        
+        const eventData = {
+            start: [startDate.getFullYear(), startDate.getMonth() + 1, startDate.getDate(), startDate.getHours(), startDate.getMinutes()] as [number, number, number, number, number],
+            duration: { minutes: Math.round(((endDate.getTime() - startDate.getTime()) / 60000)) || 30 },
+            title: updated.title,
+            description: `RESCHEDULED: Interview for ${cand?.candidateName || "Candidate"}`,
+            location: "Video Call (See invitation)",
+            status: "CONFIRMED" as const,
+            sequence: 1, // Indicates update
+            organizer: { name: fromName || "Recruiter", email: fromEmail }
+        };
+
+        const { error, value } = createEvent(eventData);
+        if (!error) icsBuffer = Buffer.from(value);
+    } catch (e) {
+        console.error("ICS generation failed:", e);
+    }
+
+    const subject = `Rescheduled Interview: ${updated.title}`;
     const text = `Hello${cand?.candidateName ? ` ${cand.candidateName}` : ""},\nYour interview has been rescheduled.\nPrevious: ${oldWhen}\nNew: ${newWhen}`;
     const html = `
-      <p>Hello${cand?.candidateName ? ` ${cand.candidateName}` : ""},</p>
-      <p>Your interview has been <strong>rescheduled</strong>.</p>
-      <p><strong>Title:</strong> ${updated.title}</p>
-      <p><strong>Previous:</strong> ${oldWhen}</p>
-      <p><strong>New:</strong> ${newWhen}</p>
-      <p>Regards,<br/>Recruitment Team</p>
+      <div style="font-family: sans-serif; color: #333; max-width: 600px; margin: auto; padding: 20px; border: 1px solid #eee; border-radius: 10px;">
+        <h2 style="color: #2563eb;">Interview Rescheduled</h2>
+        <p>Hello${cand?.candidateName ? ` ${cand.candidateName}` : ""},</p>
+        <p>Your interview has been <strong>rescheduled</strong>. Please find the updated time below and the new calendar invitation attached.</p>
+        <div style="background: #fdf2f2; padding: 15px; border-radius: 8px; margin: 10px 0; border: 1px solid #fecaca; color: #991b1b;">
+          <p style="margin: 0;"><strong>Previous Time:</strong> ${oldWhen}</p>
+        </div>
+        <div style="background: #f0fdf4; padding: 15px; border-radius: 8px; margin: 10px 0; border: 1px solid #bbf7d0; color: #166534;">
+          <p style="margin: 0;"><strong>New Time:</strong> ${newWhen}</p>
+        </div>
+        <p>Regards,<br/>Recruitment Team</p>
+      </div>
     `;
-    await transporter.sendMail({ from, to, subject, text, html, ...(replyTo ? { replyTo } : {}) });
+    await transporter.sendMail({ 
+        from, 
+        to, 
+        subject, 
+        text, 
+        html, 
+        ...(replyTo ? { replyTo } : {}),
+        attachments: icsBuffer ? [
+            {
+                filename: "interview.ics",
+                content: icsBuffer,
+                contentType: "text/calendar",
+            }
+        ] : undefined
+    });
     return NextResponse.json({ ok: true, emailSent: true });
   } catch (e) {
     console.error("Failed to send reschedule email:", e);
@@ -208,11 +266,16 @@ export async function DELETE(_req: Request, { params }: { params: { id: string }
     const subject = `Interview Cancelled: ${doc.title}`;
     const text = `Hello${cand?.candidateName ? ` ${cand.candidateName}` : ""},\nYour interview has been cancelled. Scheduled time was: ${when}`;
     const html = `
-      <p>Hello${cand?.candidateName ? ` ${cand.candidateName}` : ""},</p>
-      <p>Your interview has been <strong>cancelled</strong>.</p>
-      <p><strong>Title:</strong> ${doc.title}</p>
-      <p><strong>When:</strong> ${when}</p>
-      <p>Regards,<br/>Recruitment Team</p>
+      <div style="font-family: sans-serif; color: #333; max-width: 600px; margin: auto; padding: 20px; border: 1px solid #eee; border-radius: 10px;">
+        <h2 style="color: #dc2626;">Interview Cancelled</h2>
+        <p>Hello${cand?.candidateName ? ` ${cand.candidateName}` : ""},</p>
+        <p>This is to inform you that your interview for <strong>${doc.title}</strong> has been <strong>cancelled</strong>.</p>
+        <div style="background: #fdf2f2; padding: 15px; border-radius: 8px; margin: 20px 0; border: 1px solid #fecaca; color: #991b1b;">
+          <p style="margin: 0;"><strong>Original Time:</strong> ${when}</p>
+        </div>
+        <p>If this was unexpected, please contact our recruitment team.</p>
+        <p>Regards,<br/>Recruitment Team</p>
+      </div>
     `;
     await transporter.sendMail({ from, to, subject, text, html, ...(replyTo ? { replyTo } : {}) });
     return NextResponse.json({ ok: true, emailSent: true });

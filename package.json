@@ -16,6 +16,7 @@
     "clsx": "^2.1.1",
     "date-fns": "^3.6.0",
     "googleapis": "^143.0.0",
+    "ics": "^3.11.0",
     "jsonwebtoken": "^9.0.2",
     "lucide-react": "^0.539.0",
     "mongoose": "^8.5.3",

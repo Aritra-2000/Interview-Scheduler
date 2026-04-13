@@ -1,8 +1,9 @@
 "use client";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
-import Link from "next/link";
+import Sidebar from "@/components/Sidebar";
+import Navbar from "@/components/Navbar";
 
 type Settings = {
   timezone: string;
@@ -34,7 +35,6 @@ export default function SettingsPage() {
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string>("");
   const [data, setData] = useState<Settings | null>(null);
-  const [savedOk, setSavedOk] = useState(false);
   const [toast, setToast] = useState<{ type: "success" | "error"; message: string } | null>(null);
 
   useEffect(() => {
@@ -47,26 +47,17 @@ export default function SettingsPage() {
       try {
         const res = await fetch("/api/settings", { cache: "no-store" });
         const json = await res.json();
-        // Ensure IST (Asia/Kolkata)
+        if (!res.ok) throw new Error(json?.error || "Failed to load settings");
+
         if (!json?.timezone || json.timezone !== "Asia/Kolkata") {
           const updated = { ...json, timezone: "Asia/Kolkata" };
           setData(updated);
-          try {
-            await fetch("/api/settings", {
-              method: "PUT",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify(updated),
-            });
-            setToast({ type: "success", message: "Timezone set to Asia/Kolkata (IST)" });
-            setTimeout(() => setToast(null), 2000);
-          } catch {
-            // non-blocking
-          }
+          await fetch("/api/settings", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(updated) });
         } else {
           setData(json);
         }
-      } catch (e) {
-        setErr("Failed to load settings");
+      } catch (e: any) {
+        setErr(e?.message || "Failed to load settings");
       } finally {
         setLoading(false);
       }
@@ -80,143 +71,249 @@ export default function SettingsPage() {
     setData({ ...data, workDays: Array.from(set).sort((a, b) => a - b) });
   };
 
-  const canSave = useMemo(() => {
-    if (!data) return false;
-    if (!data.workStart || !data.workEnd) return false;
-    if (!Array.isArray(data.workDays) || data.workDays.length === 0) return false;
-    if (data.notifications.reminders && (!data.notifications.reminderMinutes || data.notifications.reminderMinutes <= 0)) return false;
-    return true;
-  }, [data]);
-
   const save = async () => {
     if (!data) return;
     setSaving(true);
     setErr("");
-    setSavedOk(false);
     try {
       const res = await fetch("/api/settings", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data) });
       if (!res.ok) throw new Error("Failed to save");
       const saved = await res.json();
       setData(saved);
-      setSavedOk(true);
-      setToast({ type: "success", message: "Settings saved" });
-      setTimeout(() => { setSavedOk(false); setToast(null); }, 2000);
+      setToast({ type: "success", message: "Environment parameters synchronized." });
+      setTimeout(() => setToast(null), 3000);
     } catch (e: any) {
       setErr(e?.message || "Save failed");
       setToast({ type: "error", message: e?.message || "Save failed" });
-      setTimeout(() => setToast(null), 2500);
+      setTimeout(() => setToast(null), 3000);
     } finally {
       setSaving(false);
     }
   };
 
-  if (loading) return <div className="p-6 text-white">Loading settings...</div>;
-  if (err) return <div className="p-6 text-red-400">{err}</div>;
-  if (!data) return <div className="p-6 text-white">No data</div>;
+  if (loading && status !== "loading") return (
+    <div className="min-h-screen bg-[#020203] flex items-center justify-center">
+       <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-indigo-500"></div>
+    </div>
+  );
 
   return (
-    <div className="p-6 text-white relative">
-      <div className="mb-4 flex items-center justify-between gap-3">
-        <h1 className="text-2xl font-semibold">Settings</h1>
-        <Link href="/dashboard/admin" className="px-3 py-2 rounded bg-gray-800 hover:bg-gray-700 border border-gray-700">
-          ← Back to Dashboard
-        </Link>
-      </div>
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <div className="space-y-4">
-          <div>
-            <label className="block text-sm text-gray-300 mb-1">Timezone</label>
-            <input value={data.timezone}
-              onChange={(e) => setData({ ...data, timezone: e.target.value })}
-              className="w-full px-3 py-2 rounded bg-gray-900 border border-gray-800" placeholder="e.g., Asia/Kolkata" />
-          </div>
-          <div>
-            <label className="block text-sm text-gray-300 mb-1">Working Days</label>
-            <div className="flex flex-wrap gap-2">
-              {WEEKDAYS.map((d, i) => (
-                <button key={i} type="button" onClick={() => toggleWorkDay(i)}
-                  className={`px-3 py-1 rounded border ${data.workDays.includes(i) ? "bg-blue-700 border-blue-600" : "bg-gray-800 border-gray-700"}`}>
-                  {d}
-                </button>
-              ))}
-            </div>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-sm text-gray-300 mb-1">Work Start</label>
-              <input type="time" value={data.workStart} onChange={(e) => setData({ ...data, workStart: e.target.value })}
-                className="w-full px-3 py-2 rounded bg-gray-900 border border-gray-800" />
-            </div>
-            <div>
-              <label className="block text-sm text-gray-300 mb-1">Work End</label>
-              <input type="time" value={data.workEnd} onChange={(e) => setData({ ...data, workEnd: e.target.value })}
-                className="w-full px-3 py-2 rounded bg-gray-900 border border-gray-800" />
-            </div>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-sm text-gray-300 mb-1">Default Duration (mins)</label>
-              <input type="number" min={0} value={data.defaultDurationMinutes}
-                onChange={(e) => setData({ ...data, defaultDurationMinutes: Number(e.target.value) })}
-                className="w-full px-3 py-2 rounded bg-gray-900 border border-gray-800" />
-            </div>
-            <div>
-              <label className="block text-sm text-gray-300 mb-1">Buffer (mins)</label>
-              <input type="number" min={0} value={data.bufferMinutes}
-                onChange={(e) => setData({ ...data, bufferMinutes: Number(e.target.value) })}
-                className="w-full px-3 py-2 rounded bg-gray-900 border border-gray-800" />
-            </div>
-          </div>
+    <div className="min-h-screen text-slate-200 grid grid-cols-12 bg-[#020203] selection:bg-indigo-500/30">
+      <div className="fixed top-0 left-0 w-64 h-full bg-indigo-600/5 blur-[120px] -z-10" />
+      
+      <aside className="col-span-2 bg-[#050507]/60 backdrop-blur-xl border-r border-white/5 p-6 h-screen sticky top-0">
+        <Sidebar />
+      </aside>
+
+      <main className="col-span-10 p-8 space-y-10 overflow-y-auto relative">
+        <div className="absolute top-0 right-0 w-[500px] h-[400px] bg-blue-600/10 blur-[150px] pointer-events-none -z-10" />
+        
+        <Navbar />
+
+        <header className="flex flex-col gap-2">
+           <h1 className="text-4xl font-extrabold tracking-tight text-white italic">System <span className="text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-blue-400">Settings</span></h1>
+           <p className="text-slate-400 max-w-2xl">Configure your working availability, global timezone, and automated notification triggers.</p>
+        </header>
+
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-start">
+           {/* General Configuration */}
+           <div className="bg-[#09090b]/50 border border-white/5 backdrop-blur-md rounded-[2.5rem] p-8 space-y-8 shadow-2xl">
+              <div className="flex items-center gap-3 pb-6 border-b border-white/5">
+                 <div className="w-1.5 h-6 bg-indigo-500 rounded-full" />
+                 <h2 className="text-xl font-bold text-white">Availability Engine</h2>
+              </div>
+              
+              <div className="space-y-6">
+                 <div className="group">
+                    <label className="block text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2 px-1">Global Timezone</label>
+                    <input 
+                       value={data?.timezone}
+                       onChange={(e) => setData(data ? { ...data, timezone: e.target.value } : null)}
+                       className="w-full px-4 py-3 rounded-2xl bg-white/[0.03] border border-white/10 text-sm focus:border-indigo-500 transition-all outline-none" 
+                       placeholder="e.g., Asia/Kolkata" 
+                    />
+                 </div>
+
+                 <div>
+                    <label className="block text-[10px] font-black uppercase tracking-widest text-slate-500 mb-3 px-1">Work Week Distribution</label>
+                    <div className="flex flex-wrap gap-2">
+                       {WEEKDAYS.map((d, i) => {
+                          const active = (data?.workDays || []).includes(i);
+                          return (
+                             <button 
+                                key={i} 
+                                type="button" 
+                                onClick={() => toggleWorkDay(i)}
+                                className={cn(
+                                   "w-12 h-12 rounded-xl border text-xs font-black uppercase transition-all",
+                                   active 
+                                      ? "bg-indigo-600 text-white border-transparent shadow-lg shadow-indigo-600/20" 
+                                      : "bg-white/[0.03] border-white/10 text-slate-500 hover:border-white/20"
+                                )}
+                             >
+                                {d.slice(0, 1)}
+                             </button>
+                          );
+                       })}
+                    </div>
+                 </div>
+
+                 <div className="grid grid-cols-2 gap-6">
+                    <div>
+                       <label className="block text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2 px-1">Shift Start</label>
+                       <input 
+                          type="time" 
+                          value={data?.workStart} 
+                          onChange={(e) => setData(data ? { ...data, workStart: e.target.value } : null)}
+                          className="w-full px-4 py-3 rounded-2xl bg-white/[0.03] border border-white/10 text-sm focus:border-indigo-500 transition-all outline-none" 
+                       />
+                    </div>
+                    <div>
+                       <label className="block text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2 px-1">Shift End</label>
+                       <input 
+                          type="time" 
+                          value={data?.workEnd} 
+                          onChange={(e) => setData(data ? { ...data, workEnd: e.target.value } : null)}
+                          className="w-full px-4 py-3 rounded-2xl bg-white/[0.03] border border-white/10 text-sm focus:border-indigo-500 transition-all outline-none" 
+                       />
+                    </div>
+                 </div>
+
+                 <div className="grid grid-cols-2 gap-6 pt-4">
+                    <div className="p-4 rounded-3xl bg-white/[0.02] border border-white/5 space-y-3">
+                       <label className="block text-[10px] font-black uppercase tracking-widest text-slate-400">Default Duration</label>
+                       <div className="flex items-center gap-3">
+                          <input 
+                             type="number" 
+                             value={data?.defaultDurationMinutes}
+                             onChange={(e) => setData(data ? { ...data, defaultDurationMinutes: Number(e.target.value) } : null)}
+                             className="w-20 bg-transparent text-2xl font-black text-white outline-none" 
+                          />
+                          <span className="text-xs font-bold text-slate-600 uppercase">Mins</span>
+                       </div>
+                    </div>
+                    <div className="p-4 rounded-3xl bg-white/[0.02] border border-white/5 space-y-3">
+                       <label className="block text-[10px] font-black uppercase tracking-widest text-slate-400">Session Buffer</label>
+                       <div className="flex items-center gap-3">
+                          <input 
+                             type="number" 
+                             value={data?.bufferMinutes}
+                             onChange={(e) => setData(data ? { ...data, bufferMinutes: Number(e.target.value) } : null)}
+                             className="w-20 bg-transparent text-2xl font-black text-white outline-none" 
+                          />
+                          <span className="text-xs font-bold text-slate-600 uppercase">Mins</span>
+                       </div>
+                    </div>
+                 </div>
+              </div>
+           </div>
+
+           {/* Communication & Triggers */}
+           <div className="space-y-8">
+              <div className="bg-[#09090b]/50 border border-white/5 backdrop-blur-md rounded-[2.5rem] p-8 space-y-6 shadow-2xl">
+                 <div className="flex items-center gap-3 mb-2">
+                    <div className="w-1.5 h-6 bg-blue-500 rounded-full" />
+                    <h2 className="text-xl font-bold text-white">Email Branding</h2>
+                 </div>
+                 <div className="space-y-4">
+                    <div>
+                       <label className="block text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2 px-1">Sent From Identity</label>
+                       <input 
+                          value={data?.emailFromName || ""}
+                          onChange={(e) => setData(data ? { ...data, emailFromName: e.target.value } : null)}
+                          className="w-full px-4 py-3 rounded-2xl bg-white/[0.03] border border-white/10 text-sm focus:border-blue-500 transition-all outline-none" 
+                          placeholder="Interview Scheduler Team"
+                       />
+                    </div>
+                    <div>
+                       <label className="block text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2 px-1">Reply-To Address</label>
+                       <input 
+                          value={data?.emailReplyTo || ""}
+                          onChange={(e) => setData(data ? { ...data, emailReplyTo: e.target.value } : null)}
+                          className="w-full px-4 py-3 rounded-2xl bg-white/[0.03] border border-white/10 text-sm focus:border-blue-500 transition-all outline-none" 
+                          placeholder="hr@company.com"
+                       />
+                    </div>
+                 </div>
+              </div>
+
+              <div className="bg-[#09090b]/50 border border-white/5 backdrop-blur-md rounded-[2.5rem] p-8 space-y-6 shadow-2xl">
+                 <div className="flex items-center gap-3 mb-2">
+                    <div className="w-1.5 h-6 bg-emerald-500 rounded-full" />
+                    <h2 className="text-xl font-bold text-white">Event Triggers</h2>
+                 </div>
+                 <div className="grid grid-cols-2 gap-4">
+                    {[
+                       { key: "scheduled", label: "New Booking" },
+                       { key: "rescheduled", label: "Time Change" },
+                       { key: "cancelled", label: "Cancellation" }
+                    ].map(t => (
+                       <label key={t.key} className="flex items-center justify-between p-4 rounded-2xl bg-white/[0.02] border border-white/5 cursor-pointer group hover:bg-white/[0.04] transition-all">
+                          <span className="text-xs font-bold text-slate-400 group-hover:text-white transition-colors">{t.label}</span>
+                          <input 
+                             type="checkbox" 
+                             checked={!!(data?.notifications && (data.notifications as any)[t.key])} 
+                             onChange={(e) => setData(data ? { ...data, notifications: { ...(data.notifications || {}), [t.key]: e.target.checked } } : null)}
+                             className="accent-indigo-600 w-4 h-4"
+                          />
+                       </label>
+                    ))}
+                    <div className="col-span-2 flex items-center justify-between p-4 rounded-2xl bg-white/[0.02] border border-white/5">
+                        <div className="flex flex-col gap-0.5">
+                            <span className="text-xs font-bold text-white">Smart Reminders</span>
+                            <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider italic">Trigger before start</span>
+                        </div>
+                        <div className="flex items-center gap-3">
+                            <input 
+                                type="number" 
+                                value={data?.notifications?.reminderMinutes || 0}
+                                onChange={(e) => setData(data ? { ...data, notifications: { ...(data.notifications || {}), reminderMinutes: Number(e.target.value) } } : null)}
+                                className="w-12 bg-transparent text-right font-black text-indigo-400 outline-none"
+                            />
+                            <div className="w-10 h-6 bg-white/5 rounded-full relative">
+                                <input 
+                                    type="checkbox" 
+                                    checked={!!data?.notifications?.reminders} 
+                                    onChange={(e) => setData(data ? { ...data, notifications: { ...(data.notifications || {}), reminders: e.target.checked } } : null)}
+                                    className="opacity-0 absolute inset-0 w-full h-full cursor-pointer z-10"
+                                />
+                                <div className={cn("absolute top-1 left-1 w-4 h-4 rounded-full transition-all", data?.notifications?.reminders ? "translate-x-4 bg-indigo-500" : "bg-slate-600")} />
+                            </div>
+                        </div>
+                    </div>
+                 </div>
+              </div>
+
+              <div className="pt-4">
+                 <button 
+                    onClick={save} 
+                    disabled={saving} 
+                    className="w-full py-5 rounded-[2rem] bg-indigo-600 hover:bg-indigo-500 text-white font-black text-lg shadow-[0_20px_50px_-10px_rgba(79,70,229,0.3)] disabled:opacity-50 disabled:shadow-none transition-all active:scale-95 flex items-center justify-center gap-3"
+                 >
+                    {saving && <Loader2 className="w-5 h-5 animate-spin" />}
+                    {saving ? "Synchronizing Context..." : "Update System Parameters"}
+                 </button>
+              </div>
+           </div>
         </div>
-
-        <div className="space-y-4">
-          <div className="border border-gray-800 rounded p-4">
-            <div className="font-medium mb-2">Email</div>
-            <div className="grid grid-cols-1 gap-3">
-              <div>
-                <label className="block text-sm text-gray-300 mb-1">From Name</label>
-                <input value={data.emailFromName || ""}
-                  onChange={(e) => setData({ ...data, emailFromName: e.target.value })}
-                  className="w-full px-3 py-2 rounded bg-gray-900 border border-gray-800" />
-              </div>
-              <div>
-                <label className="block text-sm text-gray-300 mb-1">Reply-To</label>
-                <input value={data.emailReplyTo || ""}
-                  onChange={(e) => setData({ ...data, emailReplyTo: e.target.value })}
-                  className="w-full px-3 py-2 rounded bg-gray-900 border border-gray-800" />
-              </div>
-            </div>
-          </div>
-
-          <div className="border border-gray-800 rounded p-4">
-            <div className="font-medium mb-2">Notifications</div>
-            <div className="space-y-3">
-              <label className="flex items-center gap-2"><input type="checkbox" checked={data.notifications.scheduled} onChange={(e)=>setData({ ...data, notifications: { ...data.notifications, scheduled: e.target.checked } })}/> Scheduled</label>
-              <label className="flex items-center gap-2"><input type="checkbox" checked={data.notifications.rescheduled} onChange={(e)=>setData({ ...data, notifications: { ...data.notifications, rescheduled: e.target.checked } })}/> Rescheduled</label>
-              <label className="flex items-center gap-2"><input type="checkbox" checked={data.notifications.cancelled} onChange={(e)=>setData({ ...data, notifications: { ...data.notifications, cancelled: e.target.checked } })}/> Cancelled</label>
-              <div className="flex items-center gap-3">
-                <label className="flex items-center gap-2"><input type="checkbox" checked={data.notifications.reminders} onChange={(e)=>setData({ ...data, notifications: { ...data.notifications, reminders: e.target.checked } })}/> Reminders</label>
-                <input type="number" min={1} value={data.notifications.reminderMinutes}
-                  onChange={(e)=>setData({ ...data, notifications: { ...data.notifications, reminderMinutes: Number(e.target.value) } })}
-                  className="w-32 px-3 py-2 rounded bg-gray-900 border border-gray-800" />
-                <span className="text-sm text-gray-400">minutes before</span>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div className="mt-6 flex items-center gap-3">
-        <button onClick={save} disabled={!canSave || saving} className="px-4 py-2 rounded bg-blue-700 hover:bg-blue-600 disabled:opacity-50">{saving ? "Saving..." : "Save Settings"}</button>
-        {savedOk && <span className="text-green-400 text-sm">Saved</span>}
-        {err && <span className="text-red-400 text-sm">{err}</span>}
-      </div>
+      </main>
 
       {toast && (
-        <div className={`fixed bottom-6 right-6 px-4 py-3 rounded shadow-lg border ${toast.type === "success" ? "bg-green-700/90 border-green-600" : "bg-red-700/90 border-red-600"}`}>
-          <div className="text-white text-sm">{toast.message}</div>
+        <div className={cn(
+            "fixed bottom-8 right-8 px-6 py-4 rounded-2xl shadow-2xl border backdrop-blur-xl z-[100] transition-all animate-in fade-in slide-in-from-bottom-5",
+            toast.type === "success" ? "bg-emerald-600/90 border-emerald-500/50 text-white" : "bg-red-600/90 border-red-500/50 text-white"
+        )}>
+          <div className="flex items-center gap-4">
+            <div className={`w-6 h-6 rounded-full flex items-center justify-center bg-white/20`}>
+                {toast.type === "success" ? <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg> : "!"}
+            </div>
+            <p className="text-sm font-bold tracking-tight">{toast.message}</p>
+          </div>
         </div>
       )}
     </div>
   );
 }
+
+import { cn } from "@/components/lib/utils";
+import { Loader2 } from "lucide-react";
